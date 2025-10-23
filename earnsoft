@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Watch-Ad Points (Demo)</title>
+  <style>
+    :root{--bg:#f7fafc;--card:#ffffff;--accent:#0ea5a4;--muted:#6b7280}
+    *{box-sizing:border-box}
+    body{font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial; margin:0; background:var(--bg); color:#0f172a}
+    .container{max-width:980px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;justify-content:space-between}
+    h1{font-size:20px;margin:0}
+    .card{background:var(--card);padding:18px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.06);margin-top:18px}
+    .stats{display:flex;gap:12px;align-items:center}
+    .stat{padding:12px;border-radius:10px;background:#f1f5f9;min-width:140px;text-align:center}
+    .big{font-size:28px;font-weight:700}
+    .muted{color:var(--muted);font-size:13px}
+    .controls{display:flex;gap:12px;margin-top:16px}
+    button{border:0;padding:12px 16px;border-radius:10px;cursor:pointer;font-weight:600}
+    .btn-primary{background:linear-gradient(90deg,var(--accent),#14b8a6);color:white}
+    .btn-ghost{background:transparent;border:1px solid #e6edf0}
+    .btn-disabled{opacity:0.5;cursor:not-allowed}
+    .requests table{width:100%;border-collapse:collapse;margin-top:12px}
+    .requests th,.requests td{padding:8px;border-bottom:1px solid #eef2f7;text-align:left;font-size:13px}
+    .overlay{position:fixed;inset:0;background:rgba(2,6,23,0.5);display:flex;align-items:center;justify-content:center;z-index:40}
+    .adbox{background:white;padding:20px;border-radius:12px;min-width:300px;text-align:center}
+    .small{font-size:13px}
+    .toast{position:fixed;right:20px;bottom:20px;background:#111827;color:white;padding:10px 14px;border-radius:8px;box-shadow:0 6px 18px rgba(2,6,23,0.3)}
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+    input[type=text]{padding:10px;border-radius:8px;border:1px solid #e6edf0;width:100%}
+    @media (max-width:600px){.stats{flex-direction:column;align-items:flex-start}.controls{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Watch-Ad Points — Demo</h1>
+      <div class="muted">Points system • Withdraw with bKash</div>
+    </header>
+
+    <div class="card">
+      <div class="stats">
+        <div class="stat">
+          <div class="muted">Your points</div>
+          <div id="points" class="big">0</div>
+          <div class="small muted">10 points per ad • Withdraw at 600</div>
+        </div>
+        <div class="stat">
+          <div class="muted">Withdraw threshold</div>
+          <div class="big">600</div>
+          <div class="small muted">Withdraw via bKash request</div>
+        </div>
+        <div style="flex:1"></div>
+      </div>
+
+      <div class="controls">
+        <button id="watchBtn" class="btn-primary">Watch Ad (Get 10 pts)</button>
+        <button id="withdrawBtn" class="btn-ghost">Request Withdraw</button>
+        <button id="resetBtn" class="btn-ghost">Reset (dev)</button>
+      </div>
+
+      <div class="requests card" style="margin-top:16px;padding:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <strong>Withdraw Requests</strong>
+          <div class="muted small">Local-only demo (no server)</div>
+        </div>
+        <div id="requestsTable" class="requests-list"></div>
+      </div>
+
+    </div>
+
+    <footer>Tip: This is a local HTML demo. To make it production-ready you need a server and proper payment verification.</footer>
+  </div>
+
+  <!-- Ad overlay (hidden) -->
+  <div id="overlay" class="overlay" style="display:none">
+    <div class="adbox">
+      <h3>Watching ad...</h3>
+      <div id="countdown" style="font-size:24px;margin:12px 0">5</div>
+      <div class="small muted">Don't close this window until the timer ends.</div>
+      <div style="margin-top:12px">
+        <button id="closeAdBtn" class="btn-ghost">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Withdraw modal (simple) -->
+  <div id="withdrawModal" class="overlay" style="display:none">
+    <div class="adbox">
+      <h3>Request Withdraw — 600 pts</h3>
+      <p class="small muted">Enter your bKash mobile number (e.g. 01XXXXXXXXX or +8801XXXXXXXXX)</p>
+      <div style="margin-top:8px">
+        <input id="bkashNumber" type="text" placeholder="01xxxxxxxxx or +8801xxxxxxxxx" />
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button id="confirmWithdraw" class="btn-primary">Send Request</button>
+        <button id="cancelWithdraw" class="btn-ghost">Cancel</button>
+      </div>
+      <div id="withdrawError" class="small muted" style="color:#991b1b;margin-top:8px;display:none"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" style="display:none">Done</div>
+
+  <script>
+    // Simple client-only demo. For production you MUST use a backend and real payment verification.
+    const POINTS_KEY = 'wad_points_v1';
+    const REQ_KEY = 'wad_reqs_v1';
+    const WATCH_REWARD = 10;
+    const WITHDRAW_COST = 600;
+
+    // elements
+    const pointsEl = document.getElementById('points');
+    const watchBtn = document.getElementById('watchBtn');
+    const withdrawBtn = document.getElementById('withdrawBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const overlay = document.getElementById('overlay');
+    const countdownEl = document.getElementById('countdown');
+    const closeAdBtn = document.getElementById('closeAdBtn');
+    const withdrawModal = document.getElementById('withdrawModal');
+    const bkashNumberInput = document.getElementById('bkashNumber');
+    const confirmWithdraw = document.getElementById('confirmWithdraw');
+    const cancelWithdraw = document.getElementById('cancelWithdraw');
+    const withdrawError = document.getElementById('withdrawError');
+    const toast = document.getElementById('toast');
+    const requestsTable = document.getElementById('requestsTable');
+
+    // helpers
+    function readPoints(){return parseInt(localStorage.getItem(POINTS_KEY) || '0', 10)}
+    function writePoints(v){localStorage.setItem(POINTS_KEY, String(v));}
+    function readReqs(){try{return JSON.parse(localStorage.getItem(REQ_KEY) || '[]')}catch(e){return []}}
+    function writeReqs(r){localStorage.setItem(REQ_KEY, JSON.stringify(r))}
+
+    function showToast(msg, ms=2000){toast.textContent = msg; toast.style.display='block'; setTimeout(()=>toast.style.display='none', ms)}
+
+    function updateUI(){
+      const pts = readPoints();
+      pointsEl.textContent = pts;
+      if(pts >= WITHDRAW_COST){
+        withdrawBtn.classList.remove('btn-disabled');
+        withdrawBtn.disabled = false;
+      } else {
+        withdrawBtn.classList.add('btn-disabled');
+        withdrawBtn.disabled = true;
+      }
+      renderRequests();
+    }
+
+    function renderRequests(){
+      const reqs = readReqs();
+      if(reqs.length === 0){
+        requestsTable.innerHTML = '<div class="muted small" style="padding:8px">No withdraw requests yet.</div>';
+        return;
+      }
+      let html = '<table><thead><tr><th>When</th><th>bKash No.</th><th>Amount (pts)</th><th>Status</th></tr></thead><tbody>';
+      reqs.slice().reverse().forEach(r=>{
+        const date = new Date(r.t).toLocaleString();
+        html += `<tr><td>${date}</td><td>${r.number}</td><td>${r.amount}</td><td>${r.status}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      requestsTable.innerHTML = html;
+    }
+
+    // Simulate watching an ad
+    let adTimer = null;
+    function watchAd(){
+      watchBtn.disabled = true; watchBtn.classList.add('btn-disabled');
+      overlay.style.display='flex';
+      let t = 5; countdownEl.textContent = t;
+      adTimer = setInterval(()=>{
+        t--;
+        countdownEl.textContent = t;
+        if(t<=0){
+          clearInterval(adTimer); adTimer = null; overlay.style.display='none';
+          const pts = readPoints() + WATCH_REWARD; writePoints(pts); updateUI();
+          showToast('+10 points added');
+          watchBtn.disabled = false; watchBtn.classList.remove('btn-disabled');
+        }
+      },1000);
+    }
+    closeAdBtn.addEventListener('click', ()=>{
+      if(adTimer){ clearInterval(adTimer); adTimer = null; }
+      overlay.style.display='none'; watchBtn.disabled = false; watchBtn.classList.remove('btn-disabled');
+      showToast('Ad cancelled');
+    });
+
+    // Withdraw flow
+    function openWithdraw(){
+      withdrawError.style.display='none'; bkashNumberInput.value=''; withdrawModal.style.display='flex';
+    }
+    function closeWithdraw(){ withdrawModal.style.display='none'; }
+    function validateBkash(number){
+      const n = number.trim();
+      // Accept +8801XXXXXXXXX or 01XXXXXXXXX
+      const re = /^(?:\+?88)?01[3-9]\d{8}$/;
+      return re.test(n);
+    }
+    function sendWithdraw(){
+      const num = bkashNumberInput.value.trim();
+      if(!validateBkash(num)){
+        withdrawError.style.display='block'; withdrawError.textContent='Invalid bKash number. Use 01XXXXXXXXX or +8801XXXXXXXXX';
+        return;
+      }
+      const pts = readPoints();
+      if(pts < WITHDRAW_COST){ withdrawError.style.display='block'; withdrawError.textContent='Not enough points'; return; }
+      // create request
+      const reqs = readReqs();
+      const r = { id: Date.now(), t: Date.now(), number: num, amount: WITHDRAW_COST, status: 'Pending' };
+      reqs.push(r); writeReqs(reqs);
+      writePoints(pts - WITHDRAW_COST);
+      updateUI(); closeWithdraw(); showToast('Withdraw request sent');
+
+      // NOTE: In a real system you'd POST this to your server which then validates & processes via bKash API.
+    }
+
+    // events
+    watchBtn.addEventListener('click', watchAd);
+    withdrawBtn.addEventListener('click', openWithdraw);
+    confirmWithdraw.addEventListener('click', sendWithdraw);
+    cancelWithdraw.addEventListener('click', closeWithdraw);
+    resetBtn.addEventListener('click', ()=>{ if(confirm('Reset local demo data?')){ localStorage.removeItem(POINTS_KEY); localStorage.removeItem(REQ_KEY); updateUI(); showToast('Reset'); }});
+
+    // init
+    (function(){ if(!localStorage.getItem(POINTS_KEY)) writePoints(0); updateUI(); })();
+  </script>
+</body>
+</html>
